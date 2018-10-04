@@ -1,7 +1,9 @@
 with import <nixpkgs/lib>;
 
-{ a }@s: let
-  inherit (builtins.unsafeGetAttrPos "a" s) file line;
+{ a }@set: let
+  inherit (builtins.unsafeGetAttrPos "a" set) file line;
+  content = skipLines (builtins.readFile file) line;
+  vars = getVars content;
 
   skipLines = str: let
     skipLines' = i: num:
@@ -9,8 +11,6 @@ with import <nixpkgs/lib>;
       if substring i 1 str == "\n" then skipLines' (i + 1) (num - 1)
       else skipLines' (i + 1) num;
   in skipLines' 0;
-
-  content = skipLines (builtins.readFile file) line;
 
   varfirst = "a-zA-Z_";
   varfollow = "${varfirst}0-9";
@@ -30,16 +30,8 @@ with import <nixpkgs/lib>;
     next = getVar (skipNonVars str); in
   if next == null then [] else
     [ next.var ] ++ getVars next.rest;
-  
-
-  contents = tail (splitString "\n" (builtins.readFile file));
-  vars = filter (str: stringLength str > 0) (concatMap (splitString " ") contents);
-  varsnew = filter (str: stringLength str > 0) (splitString "" content);
-
-  v = getVars content;
-
 in
-  genAttrs v (name: {
+  genAttrs vars (name: {
     sym = name;
     args = [];
     __functor = self: arg: self // {
@@ -49,7 +41,9 @@ in
     eval = let
       eval' = scope: expr: if expr ? __functor then
         if expr.sym == "def" then let
-          var = { ${(elemAt expr.args 0).sym} = args: eval' (scope // var) (elemAt (elemAt expr.args 0).args 0); };
+          varname = (elemAt expr.args 0).sym;
+          value = eval' (scope // var) (elemAt (elemAt expr.args 0).args 0);
+          var = { ${varname} = args: value; };
           in eval' (scope // var) (elemAt expr.args 1)
         else if expr.sym == "defun" then let
           fun = {
@@ -70,12 +64,13 @@ in
         let args = map (eval' scope) expr.args; in
         scope.${expr.sym} args
       else expr;
-    in eval' {
-      plus = args: elemAt args 0 + elemAt args 1;
-      minus = args: elemAt args 0 - elemAt args 1;
-      times = args: elemAt args 0 * elemAt args 1;
-      eq = args: elemAt args 0 == elemAt args 1;
-      lt = args: elemAt args 0 < elemAt args 1;
-    };
+      builtinScope = {
+        plus = args: elemAt args 0 + elemAt args 1;
+        minus = args: elemAt args 0 - elemAt args 1;
+        times = args: elemAt args 0 * elemAt args 1;
+        eq = args: elemAt args 0 == elemAt args 1;
+        lt = args: elemAt args 0 < elemAt args 1;
+      };
+    in eval' builtinScope;
 
   }
