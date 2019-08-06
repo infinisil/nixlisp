@@ -1,9 +1,6 @@
 with import <nixpkgs/lib>;
 
 { a }@set: let
-  inherit (builtins.unsafeGetAttrPos "a" set) file line;
-  content = skipLines (builtins.readFile file) line;
-  vars = getVars content;
 
   skipLines = str: let
     skipLines' = i: num:
@@ -12,32 +9,35 @@ with import <nixpkgs/lib>;
       else skipLines' (i + 1) num;
   in skipLines' 0;
 
-  varfirst = "a-zA-Z_";
-  varfollow = "${varfirst}0-9";
+  vars = map (x: x.sym) (import ./extract-vars.nix {
+    content = let inherit (builtins.unsafeGetAttrPos "a" set) file line;
+      in skipLines (builtins.readFile file) line;
+  });
 
-  skipNonVars = str: let
-    match = head (builtins.match "([^${varfirst}]*).*" str);
-  in substring (stringLength match) (-1) str;
+  /*
+  For each variable, generate an attribute set containing its name
+  and make it callable with __functor, such that `(a b c)` works, resulting in
+  something like
 
-  getVar = str: let
-    match = builtins.match "([${varfirst}][${varfollow}]*).*" str;
-  in if isNull match then null else {
-    var = head match;
-    rest = substring (stringLength (head match)) (-1) str;
-  };
+    {
+      sym = "a"
+      args = [
+        { sym = "b"; }
+        { sym = "c"; }
+      ];
+    }
 
-  getVars = str: let
-    next = getVar (skipNonVars str); in
-  if next == null then [] else
-    [ next.var ] ++ getVars next.rest;
-in
-  genAttrs vars (name: {
+  */
+  varAttrs = genAttrs vars (name: {
     sym = name;
     args = [];
     __functor = self: arg: self // {
       args = self.args ++ [arg];
     };
-  }) // {
+  });
+
+in
+  varAttrs // {
     eval = let
       eval' = scope: expr: if expr ? __functor then
         if expr.sym == "def" then let
