@@ -36,6 +36,10 @@ with import <nixpkgs/lib>;
     };
   });
 
+  liftFun = f: args: index:
+    if index >= length args then f
+    else liftFun (f (elemAt args index)) args (index + 1);
+
 in
   varAttrs // {
     eval = let
@@ -60,6 +64,9 @@ in
           ifthen = elemAt expr.args 1;
           ifelse = elemAt expr.args 2;
           in eval' scope (if condval then ifthen else ifelse)
+        else if expr.sym == "lift" then let
+          args = map (eval' scope) expr.args;
+          in liftFun (elemAt expr.args 0) args 1
         else
         let args = map (eval' scope) expr.args; in
         scope.${expr.sym} args
